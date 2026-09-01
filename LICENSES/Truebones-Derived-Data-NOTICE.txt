@@ -1,0 +1,9 @@
+AnyTop's official cond.npy represents 70 skeletons from its processed Truebones
+data. The file is downloaded from Inbar2344/AnyTop at pinned revision
+a1efdbb4c1495efe6a1e54d19c2824d1a957ce36 and has no independent per-file
+license notice.
+
+This extension does not bundle or download the Truebones source BVH dataset.
+Upstream states that the processed dataset is withheld while licensing is
+clarified and directs users to acquire the dataset separately. This notice
+does not add or alter permissions for Truebones data or derived artifacts.

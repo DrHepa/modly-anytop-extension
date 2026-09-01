@@ -1,0 +1,37 @@
+# Extension-local environments and generated Modly state
+/venv/
+/venv.__modly_staging/
+/venv.__modly_backup/
+/runtime_config.json
+/runtime_config.json.__modly_backup
+/setup-state.json
+/setup-state.json.__modly_staging
+/setup-state.json.__modly_backup
+/.setup.lock
+/.modly-local
+/.modly-incomplete
+/.modly-registration-pending
+/.modly-registration-validated
+
+# Python and test caches
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local build products
+build/
+dist/
+*.egg-info/
+*.whl
+*.part
+*.tmp
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

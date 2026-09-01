@@ -1,0 +1,7 @@
+The Hugging Face repository Inbar2344/AnyTop is pinned to revision
+a1efdbb4c1495efe6a1e54d19c2824d1a957ce36.
+
+Its model-card metadata declares `license: mit`. The pinned repository does not
+contain a separate license file specifically for its checkpoint files or
+cond.npy. This notice records the evidence found by the extension audit; it
+does not add or alter permissions.

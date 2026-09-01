@@ -1,0 +1,8 @@
+The repository inbar-2344/Motion, pinned to commit
+ac236251f90e5ca37c444c53ad383fc85de6d833, did not contain a license file or
+an explicit license grant when audited for this extension.
+
+setup.py downloads that pinned source directly for AnyTop's BVH utilities. The
+source is not vendored in this extension repository. Copyright applies even in
+the absence of a license, and this notice does not grant permission to use,
+copy, modify, or redistribute the Motion source.

@@ -1,0 +1,404 @@
+{
+  "id": "modly-anytop-extension",
+  "name": "AnyTop for Modly",
+  "type": "process",
+  "version": "1.0.0",
+  "author": "DrHepa",
+  "description": "Prepare arbitrary BVH skeletons, generate and edit motion, and extract AnyTop DIFT correspondences.",
+  "source": "https://github.com/DrHepa/modly-anytop-extension",
+  "entry": "processor.py",
+  "nodes": [
+    {
+      "id": "anytop-preprocess",
+      "name": "AnyTop Prepare Skeleton",
+      "input": "text",
+      "output": "mesh",
+      "params_schema": [
+        {
+          "id": "bvh_directory",
+          "label": "BVH directory",
+          "type": "string",
+          "default": "",
+          "picker_intent": "folder",
+          "tooltip": "Folder containing one skeleton's T/rest pose and motion BVH files."
+        },
+        {
+          "id": "right_hip",
+          "label": "Right hip",
+          "type": "string",
+          "default": "RLeg1",
+          "tooltip": "Exact BVH joint name for the right hip or equivalent orientation joint."
+        },
+        {
+          "id": "left_hip",
+          "label": "Left hip",
+          "type": "string",
+          "default": "LLeg1",
+          "tooltip": "Exact BVH joint name for the left hip or equivalent orientation joint."
+        },
+        {
+          "id": "right_shoulder",
+          "label": "Right shoulder",
+          "type": "string",
+          "default": "RArm1",
+          "tooltip": "Exact BVH joint name for the right shoulder or equivalent orientation joint."
+        },
+        {
+          "id": "left_shoulder",
+          "label": "Left shoulder",
+          "type": "string",
+          "default": "LArm1",
+          "tooltip": "Exact BVH joint name for the left shoulder or equivalent orientation joint."
+        },
+        {
+          "id": "tpos_bvh",
+          "label": "T/rest pose BVH",
+          "type": "file-select",
+          "default": "",
+          "dir_from": "bvh_directory",
+          "extensions": ["bvh"],
+          "tooltip": "Optional natural rest-pose file from BVH directory. If empty, AnyTop selects a pose."
+        }
+      ]
+    },
+    {
+      "id": "anytop-generate",
+      "name": "AnyTop Generate Built-in",
+      "input": "text",
+      "output": "mesh",
+      "params_schema": [
+        {
+          "id": "model_family",
+          "label": "Checkpoint",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            {"value": "auto", "label": "Auto (specialized when known)"},
+            {"value": "unified", "label": "Unified"},
+            {"value": "bipeds", "label": "Bipeds — specialized"},
+            {"value": "flying", "label": "Flying — specialized"},
+            {"value": "millipeds_snakes", "label": "Millipeds / snakes — specialized"},
+            {"value": "quadropeds", "label": "Quadrupeds — specialized"}
+          ],
+          "tooltip": "Select one of the five official AnyTop checkpoints. Auto uses the matching specialized family when known."
+        },
+        {
+          "id": "motion_length",
+          "label": "Motion length (seconds)",
+          "type": "float",
+          "default": 6.0,
+          "min": 0.1,
+          "max": 9.8,
+          "step": 0.1,
+          "tooltip": "Duration at AnyTop's fixed 20 FPS; upstream publishes a maximum of 9.8 seconds."
+        },
+        {
+          "id": "num_repetitions",
+          "label": "Repetitions",
+          "type": "int",
+          "default": 3,
+          "min": 1,
+          "max": 16,
+          "step": 1,
+          "tooltip": "Independent motions generated for the selected skeleton."
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": 10,
+          "min": 0,
+          "max": 4294967295,
+          "step": 1
+        },
+        {
+          "id": "device_mode",
+          "label": "Device",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            {"value": "auto", "label": "Auto"},
+            {"value": "cuda", "label": "NVIDIA CUDA"},
+            {"value": "cpu", "label": "CPU"}
+          ],
+          "tooltip": "Auto prefers CUDA when available. Unavailable explicit devices fail without fallback."
+        },
+        {
+          "id": "cuda_device",
+          "label": "CUDA device index",
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 31,
+          "step": 1,
+          "show_if": {"device_mode": ["auto", "cuda"]}
+        }
+      ]
+    },
+    {
+      "id": "anytop-generate-custom",
+      "name": "AnyTop Generate Prepared",
+      "input": "mesh",
+      "output": "mesh",
+      "params_schema": [
+        {
+          "id": "model_family",
+          "label": "Checkpoint",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            {"value": "auto", "label": "Auto"},
+            {"value": "unified", "label": "Unified"},
+            {"value": "bipeds", "label": "Bipeds — specialized"},
+            {"value": "flying", "label": "Flying — specialized"},
+            {"value": "millipeds_snakes", "label": "Millipeds / snakes — specialized"},
+            {"value": "quadropeds", "label": "Quadrupeds — specialized"}
+          ],
+          "tooltip": "Choose the official checkpoint that best matches the prepared skeleton. Auto uses unified for an unknown custom name."
+        },
+        {
+          "id": "motion_length",
+          "label": "Motion length (seconds)",
+          "type": "float",
+          "default": 6.0,
+          "min": 0.1,
+          "max": 9.8,
+          "step": 0.1,
+          "tooltip": "Duration at AnyTop's fixed 20 FPS; upstream publishes a maximum of 9.8 seconds."
+        },
+        {
+          "id": "num_repetitions",
+          "label": "Repetitions",
+          "type": "int",
+          "default": 3,
+          "min": 1,
+          "max": 16,
+          "step": 1
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": 10,
+          "min": 0,
+          "max": 4294967295,
+          "step": 1
+        },
+        {
+          "id": "device_mode",
+          "label": "Device",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            {"value": "auto", "label": "Auto"},
+            {"value": "cuda", "label": "NVIDIA CUDA"},
+            {"value": "cpu", "label": "CPU"}
+          ],
+          "tooltip": "Auto prefers CUDA when available. Unavailable explicit devices fail without fallback."
+        },
+        {
+          "id": "cuda_device",
+          "label": "CUDA device index",
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 31,
+          "step": 1,
+          "show_if": {"device_mode": ["auto", "cuda"]}
+        }
+      ]
+    },
+    {
+      "id": "anytop-edit",
+      "name": "AnyTop Edit Motion",
+      "input": "mesh",
+      "output": "mesh",
+      "params_schema": [
+        {
+          "id": "edit_mode",
+          "label": "Edit mode",
+          "type": "select",
+          "default": "in_between",
+          "options": [
+            {"value": "in_between", "label": "In-between"},
+            {"value": "upper_body", "label": "Upper body"}
+          ]
+        },
+        {
+          "id": "prefix_end",
+          "label": "Fixed prefix end",
+          "type": "float",
+          "default": 0.25,
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.01,
+          "show_if": {"edit_mode": "in_between"},
+          "tooltip": "End ratio of the prefix retained from the input motion. Must be lower than Fixed suffix start."
+        },
+        {
+          "id": "suffix_start",
+          "label": "Fixed suffix start",
+          "type": "float",
+          "default": 0.75,
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.01,
+          "show_if": {"edit_mode": "in_between"},
+          "tooltip": "Start ratio of the suffix retained from the input motion."
+        },
+        {
+          "id": "upper_body_root",
+          "label": "Upper-body roots",
+          "type": "string",
+          "default": "0",
+          "show_if": {"edit_mode": "upper_body"},
+          "tooltip": "Comma-separated joint indices defining upper-body subtree roots; upstream defaults to 0."
+        },
+        {
+          "id": "model_family",
+          "label": "Checkpoint",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            {"value": "auto", "label": "Auto"},
+            {"value": "unified", "label": "Unified"},
+            {"value": "bipeds", "label": "Bipeds — specialized"},
+            {"value": "flying", "label": "Flying — specialized"},
+            {"value": "millipeds_snakes", "label": "Millipeds / snakes — specialized"},
+            {"value": "quadropeds", "label": "Quadrupeds — specialized"}
+          ],
+          "tooltip": "Auto uses the matching specialized family for a known bundle name and unified otherwise."
+        },
+        {
+          "id": "num_repetitions",
+          "label": "Repetitions",
+          "type": "int",
+          "default": 3,
+          "min": 1,
+          "max": 16,
+          "step": 1
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": 10,
+          "min": 0,
+          "max": 4294967295,
+          "step": 1
+        },
+        {
+          "id": "device_mode",
+          "label": "Device",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            {"value": "auto", "label": "Auto"},
+            {"value": "cuda", "label": "NVIDIA CUDA"},
+            {"value": "cpu", "label": "CPU"}
+          ]
+        },
+        {
+          "id": "cuda_device",
+          "label": "CUDA device index",
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 31,
+          "step": 1,
+          "show_if": {"device_mode": ["auto", "cuda"]}
+        }
+      ]
+    },
+    {
+      "id": "anytop-correspondence",
+      "name": "AnyTop DIFT Correspondence",
+      "input": "mesh",
+      "output": "text",
+      "params_schema": [
+        {
+          "id": "reference_bundle",
+          "label": "Reference bundle",
+          "type": "string",
+          "default": "",
+          "picker_intent": "mesh",
+          "tooltip": "Select the AnyTop GLB bundle used as the reference; the connected mesh input is the target."
+        },
+        {
+          "id": "dift_type",
+          "label": "Correspondence type",
+          "type": "select",
+          "default": "spatial",
+          "options": [
+            {"value": "spatial", "label": "Spatial"},
+            {"value": "temporal", "label": "Temporal"}
+          ],
+          "tooltip": "Upstream examples use layer 0 / timestep 90 for spatial and layer 3 / timestep 1 for temporal."
+        },
+        {
+          "id": "layer",
+          "label": "DIFT layer",
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 3,
+          "step": 1
+        },
+        {
+          "id": "timestep",
+          "label": "Diffusion timestep",
+          "type": "int",
+          "default": 90,
+          "min": 0,
+          "max": 99,
+          "step": 1
+        },
+        {
+          "id": "model_family",
+          "label": "Checkpoint",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            {"value": "auto", "label": "Auto"},
+            {"value": "unified", "label": "Unified"},
+            {"value": "bipeds", "label": "Bipeds — specialized"},
+            {"value": "flying", "label": "Flying — specialized"},
+            {"value": "millipeds_snakes", "label": "Millipeds / snakes — specialized"},
+            {"value": "quadropeds", "label": "Quadrupeds — specialized"}
+          ],
+          "tooltip": "Auto uses the unified checkpoint because reference and target may belong to different families."
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": 10,
+          "min": 0,
+          "max": 4294967295,
+          "step": 1
+        },
+        {
+          "id": "device_mode",
+          "label": "Device",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            {"value": "auto", "label": "Auto"},
+            {"value": "cuda", "label": "NVIDIA CUDA"},
+            {"value": "cpu", "label": "CPU"}
+          ]
+        },
+        {
+          "id": "cuda_device",
+          "label": "CUDA device index",
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "max": 31,
+          "step": 1,
+          "show_if": {"device_mode": ["auto", "cuda"]}
+        }
+      ]
+    }
+  ]
+}
