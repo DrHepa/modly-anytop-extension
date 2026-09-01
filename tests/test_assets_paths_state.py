@@ -43,14 +43,13 @@ def test_models_dir_resolution_order_and_owned_layout(tmp_path: Path) -> None:
     extension = tmp_path / "modly" / "extensions" / EXTENSION_ID
     extension.mkdir(parents=True)
     assert resolve_models_root(
-        {"models_dir": str(models)}, extension, "linux", environ={}, opener=_no_api
+        {"models_dir": str(models)}, extension, environ={}, opener=_no_api
     ) == models
     env_models = tmp_path / "env-models"
     env_models.mkdir()
     assert resolve_models_root(
         {},
         extension,
-        "linux",
         environ={"MODLY_MODELS_DIR": str(env_models)},
         opener=_no_api,
     ) == env_models
@@ -70,7 +69,6 @@ def test_payload_alias_conflict_fails_closed(tmp_path: Path) -> None:
         resolve_models_root(
             {"models_dir": str(first), "modelsDir": str(second)},
             tmp_path,
-            "linux",
             environ={},
             opener=_no_api,
         )
@@ -88,7 +86,7 @@ def test_api_precedes_generic_models_dir(tmp_path: Path) -> None:
         return Response(body, 200, {"Content-Length": str(len(body))})
 
     assert resolve_models_root(
-        {}, tmp_path, "linux", environ={"MODELS_DIR": str(shell_models)}, opener=opener
+        {}, tmp_path, environ={"MODELS_DIR": str(shell_models)}, opener=opener
     ) == api_models
 
 

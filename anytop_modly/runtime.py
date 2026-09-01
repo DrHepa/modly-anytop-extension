@@ -600,16 +600,26 @@ class OutputRun:
 
     @classmethod
     def create(cls, workspace: Path, operation: str) -> "OutputRun":
-        workflows = workspace / "Workflows"
-        root = workflows / "AnyTop"
         try:
+            # Canonicalize first: Windows may supply the workspace through an
+            # 8.3 short path while subsequent filesystem checks return its
+            # long form.  Every containment comparison below must use one
+            # verified representation.
+            workspace_checked = require_directory(workspace)
+            workflows = workspace_checked / "Workflows"
             workflows.mkdir(exist_ok=True)
-            root.mkdir(exist_ok=True)
             workflows_checked = require_directory(workflows)
+            # Derive and create the child only after rejecting a linked or
+            # reparse-point Workflows directory, so no write can be redirected
+            # outside the verified workspace.
+            root = workflows_checked / "AnyTop"
+            root.mkdir(exist_ok=True)
             root_checked = require_directory(root)
         except (OSError, BundleError) as exc:
             raise ProcessFailure("OUTPUT_INVALID") from exc
-        if not _inside(root_checked, workspace) or not _inside(root_checked, workflows_checked):
+        if not _inside(root_checked, workspace_checked) or not _inside(
+            root_checked, workflows_checked
+        ):
             raise ProcessFailure("OUTPUT_INVALID")
         name = _run_name(operation)
         final = root_checked / name

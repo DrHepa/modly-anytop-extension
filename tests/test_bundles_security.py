@@ -86,13 +86,15 @@ def test_unsafe_key_permissions_are_rejected(tmp_path: Path) -> None:
 
 def _fake_dpapi_protect(value: bytes) -> bytes:
     digest = hashlib.sha256(b"test-dpapi-user" + value).digest()
-    return b"DPAPI" + value[::-1] + digest
+    # The LF is deliberate: a Windows descriptor accidentally opened in text
+    # mode expands it to CRLF and corrupts the length-prefixed envelope.
+    return b"DPAPI\n" + value[::-1] + digest
 
 
 def _fake_dpapi_unprotect(value: bytes) -> bytes:
-    if len(value) != 5 + bundles.BUNDLE_AUTH_KEY_BYTES + 32 or not value.startswith(b"DPAPI"):
+    if len(value) != 6 + bundles.BUNDLE_AUTH_KEY_BYTES + 32 or not value.startswith(b"DPAPI\n"):
         raise bundles.BundleError("mock DPAPI rejected ciphertext")
-    plaintext = value[5 : 5 + bundles.BUNDLE_AUTH_KEY_BYTES][::-1]
+    plaintext = value[6 : 6 + bundles.BUNDLE_AUTH_KEY_BYTES][::-1]
     expected = hashlib.sha256(b"test-dpapi-user" + plaintext).digest()
     if not hmac.compare_digest(value[-32:], expected):
         raise bundles.BundleError("mock DPAPI rejected ciphertext")

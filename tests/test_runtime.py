@@ -17,12 +17,13 @@ class ProtocolTests(unittest.TestCase):
     def test_success_is_monotonic_and_has_one_terminal_record(self) -> None:
         output = io.StringIO()
         sentinel = object()
+        result_path = Path(tempfile.gettempdir()) / "result.glb"
 
         def fake_process(request: object, emitter: runtime.ProtocolEmitter):
             self.assertIs(request, sentinel)
             emitter.progress(60, "heavy work")
             emitter.progress(40, "cannot regress")
-            return "file", Path("/tmp/result.glb")
+            return "file", result_path
 
         with mock.patch.object(runtime, "validate_request", return_value=sentinel), mock.patch.object(
             runtime, "process", side_effect=fake_process
@@ -38,7 +39,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(progress[-1], 100)
         terminal = [record for record in records if record["type"] in {"done", "error"}]
         self.assertEqual(len(terminal), 1)
-        self.assertEqual(terminal[0]["result"]["filePath"], "/tmp/result.glb")
+        self.assertEqual(terminal[0]["result"]["filePath"], str(result_path))
 
     def test_multiple_request_lines_fail_with_one_public_error(self) -> None:
         output = io.StringIO()
@@ -68,6 +69,23 @@ class ProtocolTests(unittest.TestCase):
 
 
 class BundlePackagingTests(unittest.TestCase):
+    def test_output_run_rejects_linked_workflows_before_external_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            outside = root / "outside"
+            workspace.mkdir()
+            outside.mkdir()
+            workflows = workspace / "Workflows"
+            try:
+                workflows.symlink_to(outside, target_is_directory=True)
+            except OSError:
+                self.skipTest("directory symlinks are not permitted")
+
+            with self.assertRaises(runtime.ProcessFailure):
+                runtime.OutputRun.create(workspace, "generate-custom")
+            self.assertFalse((outside / "AnyTop").exists())
+
     def test_packaging_is_chainable_and_tamper_evident(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -343,7 +361,10 @@ class RuntimeStateRoutingTests(unittest.TestCase):
             ):
                 state = runtime.load_state(config)
             self.assertEqual(state.revision_root, revision.resolve())
-            self.assertEqual(state.source_root, runtime.snapshot_paths(revision).anytop_source)
+            self.assertEqual(
+                state.source_root,
+                runtime.snapshot_paths(state.revision_root).anytop_source,
+            )
 
     def test_rejects_anytop_motion_and_t5_redirection_inside_revision(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -81,7 +81,9 @@ class CorrespondenceWorkerTests(unittest.TestCase):
             def run_dift(*, args: object, cond_dict: object) -> None:
                 self.assertEqual(Path(args.sample_ref).name, "Monkey_reference.npy")
                 self.assertEqual(Path(args.sample_tgt[0]).name, "Spider_target.npy")
-                self.assertTrue(str(args.model_path).startswith(str(output)))
+                self.assertTrue(
+                    Path(args.model_path).resolve().is_relative_to(output.resolve())
+                )
                 self.assertEqual(set(cond_dict), {"Monkey", "Spider"})
                 destination = Path(args.model_path).parent / Path(args.model_path).stem / "dift_out"
                 destination.mkdir(parents=True)

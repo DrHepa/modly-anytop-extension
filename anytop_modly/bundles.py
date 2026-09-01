@@ -330,7 +330,12 @@ def ensure_bundle_auth_key(runtime_cache: Path) -> Path:
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     descriptor: int | None = None
     try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        # CPython's low-level Windows descriptors default to text mode.  A
+        # DPAPI ciphertext can contain LF bytes, which text mode expands to
+        # CRLF and thereby corrupts the length-prefixed envelope.  O_BINARY is
+        # zero/absent on POSIX and therefore keeps the same code portable.
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        descriptor = os.open(temporary, flags, 0o600)
         key = secrets.token_bytes(BUNDLE_AUTH_KEY_BYTES)
         stored = _encode_windows_key(key) if _uses_windows_key_protection() else key
         written = os.write(descriptor, stored)
