@@ -43,6 +43,7 @@ from .constants import (
     SPECIALIZED_FAMILY,
 )
 from .paths import snapshot_paths
+from .state import StateError, read_runtime_config_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -269,7 +270,11 @@ def _verify_snapshot_once(revision_root: Path, ready_marker: Path) -> None:
 
 
 def load_state(config_path: Path | None = None) -> RuntimeState:
-    config = _read_json_file(config_path or (ROOT / RUNTIME_CONFIG_FILENAME), MAX_CONFIG_BYTES)
+    try:
+        runtime_config = read_runtime_config_path(config_path or (ROOT / RUNTIME_CONFIG_FILENAME))
+    except StateError as exc:
+        raise ProcessFailure("SETUP_REQUIRED") from exc
+    config = runtime_config.payload
     if config.get("extension_id") != EXTENSION_ID or config.get("revision_id") != REVISION_ID:
         raise ProcessFailure("SETUP_REQUIRED")
     models_dir = _config_path(config.get("models_dir"), "models_dir", directory=True)

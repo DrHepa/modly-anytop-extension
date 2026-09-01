@@ -9,7 +9,7 @@ from typing import Final
 
 
 EXTENSION_ID: Final = "modly-anytop-extension"
-EXTENSION_VERSION: Final = "1.0.0"
+EXTENSION_VERSION: Final = "1.0.1"
 ANYTOP_COMMIT: Final = "e780d1575ca0121f29bb53821b309cf564156a95"
 ANYTOP_HF_REVISION: Final = "a1efdbb4c1495efe6a1e54d19c2824d1a957ce36"
 T5_REVISION: Final = "a9723ea7f1b39c1eae772870f3b547bf6ef7e6c1"

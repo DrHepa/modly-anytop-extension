@@ -36,9 +36,10 @@ the extension does not download valid weights again.
 - Built-in: **Text → Generate Built-in**
 - Custom: **Text + BVH folder → Prepare Skeleton → Generate Prepared**
 - Edit: **Generated bundle → Edit Motion**
-- DIFT: connect the target bundle, then select the reference bundle in the
-  node's mesh picker. Modly v0.4.2 collapses multiple mesh inputs to one
-  `filePath`, so the second artifact is intentionally a parameter.
+- DIFT: connect the target bundle, then enter the reference bundle path in the
+  `Reference bundle` string parameter. Modly v0.4.2 collapses multiple mesh
+  inputs to one `filePath`, so the second artifact is intentionally a
+  parameter.
 
 ## Parameters
 
@@ -52,9 +53,9 @@ pair may cross families. Explicit selection never silently changes checkpoint.
   fixed 20 FPS; `3` repetitions; seed `10`.
 - **Device:** `auto`, `cuda`, or `cpu`, plus CUDA device index. An unavailable
   explicit CUDA device fails instead of falling back.
-- **Prepare Skeleton:** BVH folder, four exact orientation-joint names in the
+- **Prepare Skeleton:** BVH folder path, four exact orientation-joint names in the
   order right hip, left hip, right shoulder, left shoulder, and an optional
-  T/rest-pose BVH chosen from that folder.
+  T/rest-pose BVH path from that folder.
 - **Edit / in-between:** fixed prefix ends at `0.25` and fixed suffix begins at
   `0.75`; the prefix value must be lower than the suffix value.
 - **Edit / upper body:** comma-separated subtree-root joint indices; default
@@ -62,14 +63,14 @@ pair may cross families. Explicit selection never silently changes checkpoint.
 - **DIFT:** spatial or temporal, layer `0`, timestep `90`. The upstream temporal
   example recommends layer `3`, timestep `1`.
 
-The manifest contains the complete ranges and tooltips shown in the Modly UI.
+The manifest contains the complete ranges and tooltips shown in the Modly UI. Path fields intentionally use supported string controls; runtime validation still requires absolute paths, or `tpos_bvh` relative to its BVH folder and `Reference bundle` relative to the workspace.
 
 ## Preparing a custom skeleton
 
 Use a short ASCII object name such as `Dog`, select a folder containing BVH
 files for one consistent skeleton, and set the four orientation joints to names
 that exist in those files. More motion files improve the denormalization
-statistics. A natural rest pose is strongly recommended; if it is not selected,
+statistics. A natural rest pose is strongly recommended; if its string path is empty,
 AnyTop chooses a pose from the folder.
 
 Upstream expects fewer than 144 joints and consistent BVH hierarchy/channels.
@@ -121,8 +122,10 @@ files. Its NPY mapping and MP4 visualization remain under
 
 ## Requirements and compatibility
 
-- Modly upstream v0.4.2, commit `8d08249`, with a 64-bit CPython 3.11 process
-  host.
+- Modly upstream v0.4.2, commit `8d08249`, with a 64-bit CPython 3.11 or
+  3.12 process host. Upstream Modly bundles CPython 3.11.9; this extension
+  also preserves a separately validated CPython 3.12 dependency closure for
+  local runtimes based on Python 3.12.
 - Network during Install or Repair. The pinned downloads are about 0.885 GiB,
   but setup reserves enough free space for Torch, the venv, caches, extraction,
   and temporary files according to the selected lane:
@@ -137,10 +140,12 @@ files. Its NPY mapping and MP4 visualization remain under
 
 - Windows x64, Linux x64, and Linux ARM64 **SBSA** setup routes are implemented.
   CPU and compatible official NVIDIA CUDA wheel lanes are selected from Modly's
-  platform metadata.
+  platform metadata. Dependency locks are ABI-specific: CPython 3.11 uses the
+  original release closure, while CPython 3.12 uses the validated NumPy/SciPy/
+  Matplotlib/contourpy/spaCy/thinc pins.
 
-These platform routes have static and mocked validation but remain
-**pre-hardware / runtime-unvalidated**. Upstream itself reports only Ubuntu
+Both CPython 3.11 and 3.12 source tests run in CI. These platform routes have
+static and mocked validation but remain **pre-hardware / runtime-unvalidated**. Upstream itself reports only Ubuntu
 18.04, Python 3.8, and CUDA testing; CPU execution is an extension adaptation
 and may be very slow. Stock Jetson/Tegra Python is not SBSA-compatible and is
 rejected by setup; SM121 is limited to Linux ARM64. A Jetson-specific container

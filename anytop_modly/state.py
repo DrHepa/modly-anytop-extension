@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path
 import stat
+import struct
+import sys
 from typing import Mapping
 import uuid
 
@@ -18,6 +20,10 @@ DEPENDENCY_STATE_SCHEMA_VERSION = 1
 MAX_STATE_BYTES = 128 * 1024
 WINDOWS_REPARSE_ATTRIBUTE = 0x400
 RUNTIME_RESERVED = frozenset({"schema_version", "models_dir", "revision_root"})
+SUPPORTED_RUNTIME_ABIS = {
+    "cp311": (3, 11),
+    "cp312": (3, 12),
+}
 
 
 class StateError(RuntimeError):
@@ -38,6 +44,22 @@ class RuntimeConfig:
         """Compatibility alias for integrations written against older state."""
 
         return self.revision_root
+
+
+def current_python_abi() -> str:
+    if sys.implementation.name != "cpython" or struct.calcsize("P") * 8 != 64:
+        raise StateError(
+            "STATE_PYTHON_ABI_UNSUPPORTED",
+            "AnyTop runtime requires 64-bit CPython 3.11 or 3.12; run Repair",
+        )
+    version = tuple(sys.version_info[:2])
+    for abi, expected in SUPPORTED_RUNTIME_ABIS.items():
+        if version == expected:
+            return abi
+    raise StateError(
+        "STATE_PYTHON_ABI_UNSUPPORTED",
+        "AnyTop runtime requires 64-bit CPython 3.11 or 3.12; run Repair",
+    )
 
 
 def _is_alias(info: os.stat_result) -> bool:
@@ -192,10 +214,22 @@ def write_runtime_config(
     )
 
 
-def read_runtime_config(extension_dir: Path) -> RuntimeConfig:
-    payload = _read_json(extension_dir / RUNTIME_CONFIG_FILENAME)
+def read_runtime_config_path(config_path: Path) -> RuntimeConfig:
+    payload = _read_json(config_path)
     if payload.get("schema_version") != RUNTIME_CONFIG_SCHEMA_VERSION:
         raise StateError("STATE_SCHEMA_MISMATCH", "runtime state is stale; run Repair")
+    recorded_abi = payload.get("python_abi")
+    if recorded_abi not in SUPPORTED_RUNTIME_ABIS:
+        raise StateError(
+            "STATE_PYTHON_ABI_UNSUPPORTED",
+            "runtime state was generated for an unsupported Python ABI; run Repair",
+        )
+    actual_abi = current_python_abi()
+    if recorded_abi != actual_abi:
+        raise StateError(
+            "STATE_PYTHON_ABI_MISMATCH",
+            "runtime state was generated for a different Python ABI; run Repair",
+        )
     models_raw = payload.get("models_dir")
     revision_raw = payload.get("revision_root")
     if not isinstance(models_raw, str) or not isinstance(revision_raw, str):
@@ -209,6 +243,10 @@ def read_runtime_config(extension_dir: Path) -> RuntimeConfig:
     if payload != expected:
         raise StateError("STATE_PATH_INVALID", "runtime model paths are stale; run Repair")
     return RuntimeConfig(models, revision, expected)
+
+
+def read_runtime_config(extension_dir: Path) -> RuntimeConfig:
+    return read_runtime_config_path(extension_dir / RUNTIME_CONFIG_FILENAME)
 
 
 def write_dependency_state(path: Path, payload: Mapping[str, object]) -> Path:

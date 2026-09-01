@@ -1,4 +1,4 @@
-"""Pinned CPython 3.11 dependency plans for AnyTop inference and preprocessing."""
+"""Pinned CPython 3.11/3.12 dependency plans for AnyTop inference and preprocessing."""
 
 from __future__ import annotations
 
@@ -45,6 +45,14 @@ TORCH_CUDA_RUNTIMES = {
     "cu128": "12.8",
     "cu130": "13.0",
 }
+SUPPORTED_PYTHON_ABIS = {
+    "cp311": (3, 11),
+    "cp312": (3, 12),
+}
+PYTHON_ABI_LABELS = {
+    "cp311": "CPython 3.11",
+    "cp312": "CPython 3.12",
+}
 BLACKWELL_LANES = {
     100: "cu128",
     120: "cu128",
@@ -63,7 +71,7 @@ BOOTSTRAP_REQUIREMENTS = (
 # first compatible release line used with the deterministic source patch.
 # Motion declares PyMEL as a package dependency, but the AnyTop inference and
 # preprocessing paths never import or execute its Maya authoring helpers.
-INFERENCE_REQUIREMENTS = (
+CP311_INFERENCE_REQUIREMENTS = (
     "blis==0.7.11",
     "blobfile==3.0.0",
     "catalogue==2.0.10",
@@ -135,6 +143,24 @@ INFERENCE_REQUIREMENTS = (
     "weasel==0.3.4",
     "zipp==3.20.2",
 )
+
+# CPython 3.12 keeps the validated local setup closure.  Only the packages with
+# ABI-sensitive wheel constraints differ from the CPython 3.11 lock above.
+CP312_INFERENCE_REQUIREMENTS = tuple(
+    {
+        "contourpy==1.1.1": "contourpy==1.2.1",
+        "matplotlib==3.7.5": "matplotlib==3.8.4",
+        "numpy==1.24.4": "numpy==1.26.4",
+        "scipy==1.10.1": "scipy==1.11.4",
+        "spacy==3.7.2": "spacy==3.7.5",
+        "thinc==8.1.8": "thinc==8.2.5",
+    }.get(requirement, requirement)
+    for requirement in CP311_INFERENCE_REQUIREMENTS
+)
+INFERENCE_REQUIREMENTS_BY_ABI = {
+    "cp311": CP311_INFERENCE_REQUIREMENTS,
+    "cp312": CP312_INFERENCE_REQUIREMENTS,
+}
 
 # Torch 2.6.0 declares sympy==1.13.1 on Python >=3.9, while the other
 # selected releases use the newer closure. Keeping this lane-specific avoids
@@ -217,6 +243,7 @@ class DependencyPlan:
     torch_version: str
     torch_index: str
     support_level: str
+    python_abi: str
 
     @property
     def torch_requirement(self) -> str:
@@ -233,6 +260,10 @@ class DependencyPlan:
     @property
     def default_device(self) -> str:
         return "cuda" if self.accelerator == "cuda" else "cpu"
+
+    @property
+    def python_label(self) -> str:
+        return PYTHON_ABI_LABELS[self.python_abi]
 
 
 def _normalize_platform(value: object) -> str:
@@ -265,6 +296,92 @@ def _integer(value: object, name: str) -> int:
     return result
 
 
+def python_abi_from_version(version: object) -> str:
+    if isinstance(version, str):
+        raw = version.strip().casefold()
+        if raw in SUPPORTED_PYTHON_ABIS:
+            return raw
+        raw = raw.replace("cpython", "").replace("python", "").strip()
+        if raw.startswith("cp"):
+            raw = raw[2:]
+        raw = raw.replace("-", ".").replace("_", ".").replace(" ", "")
+        parts = [raw[0], raw[1:]] if re.fullmatch(r"\d{3}", raw) else raw.split(".")
+    elif isinstance(version, Sequence) and not isinstance(version, (bytes, bytearray)):
+        parts = [str(item) for item in version]
+    else:
+        raise DependencyError(
+            "PYTHON_ABI_UNSUPPORTED",
+            "AnyTop setup supports only 64-bit CPython 3.11 or 3.12",
+        )
+    try:
+        major = int(parts[0])
+        minor = int(parts[1])
+    except (IndexError, TypeError, ValueError) as exc:
+        raise DependencyError(
+            "PYTHON_ABI_UNSUPPORTED",
+            "AnyTop setup supports only 64-bit CPython 3.11 or 3.12",
+        ) from exc
+    for abi, expected in SUPPORTED_PYTHON_ABIS.items():
+        if (major, minor) == expected:
+            return abi
+    raise DependencyError(
+        "PYTHON_ABI_UNSUPPORTED",
+        f"AnyTop setup supports only 64-bit CPython 3.11 or 3.12; got Python {major}.{minor}",
+    )
+
+
+def python_abi_from_fingerprint(fingerprint: Mapping[str, object]) -> str:
+    if fingerprint.get("implementation") != "cpython" or fingerprint.get("pointer_bits") != 64:
+        raise DependencyError(
+            "PYTHON_ABI_UNSUPPORTED",
+            "AnyTop setup supports only 64-bit CPython 3.11 or 3.12",
+        )
+    return python_abi_from_version(fingerprint.get("version"))
+
+
+def _python_abi(payload: Mapping[str, object]) -> str:
+    candidates: list[tuple[str, str]] = []
+    raw = payload.get("python_abi")
+    if raw is not None:
+        if isinstance(raw, str):
+            normalized = raw.strip().casefold()
+            if normalized in SUPPORTED_PYTHON_ABIS:
+                candidates.append(("python_abi", normalized))
+            else:
+                candidates.append(("python_abi", python_abi_from_version(raw)))
+        else:
+            candidates.append(("python_abi", python_abi_from_version(raw)))
+    host = payload.get("host_python")
+    if host is not None:
+        if not isinstance(host, Mapping):
+            raise DependencyError(
+                "PYTHON_ABI_UNSUPPORTED",
+                "host_python must contain the probed 64-bit CPython ABI fingerprint",
+            )
+        candidates.append(("host_python", python_abi_from_fingerprint(host)))
+    version = payload.get("python_version")
+    if version is not None:
+        candidates.append(("python_version", python_abi_from_version(version)))
+    if candidates:
+        authoritative = next(
+            (abi for source, abi in candidates if source == "host_python"),
+            candidates[0][1],
+        )
+        conflicts = [source for source, abi in candidates if abi != authoritative]
+        if conflicts:
+            sources = ", ".join(source for source, _abi in candidates)
+            raise DependencyError(
+                "PYTHON_ABI_CONFLICT",
+                "Modly supplied conflicting Python ABI metadata; run Repair with one "
+                f"64-bit CPython 3.11/3.12 runtime ({sources})",
+            )
+        return authoritative
+    raise DependencyError(
+        "PYTHON_ABI_MISSING",
+        "setup must pass the probed Modly Python ABI; refusing to infer from the launcher",
+    )
+
+
 def tegra_evidence(payload: Mapping[str, object]) -> str | None:
     for key in (
         "platform_variant",
@@ -294,6 +411,7 @@ def tegra_evidence(payload: Mapping[str, object]) -> str | None:
 
 
 def select_dependency_plan(payload: Mapping[str, object]) -> DependencyPlan:
+    python_abi = _python_abi(payload)
     system = _normalize_platform(payload.get("platform") or platform.system())
     arch = _normalize_arch(payload.get("arch") or platform.machine())
     if system not in {"linux", "win32"}:
@@ -342,8 +460,8 @@ def select_dependency_plan(payload: Mapping[str, object]) -> DependencyPlan:
                 )
         elif 50 <= gpu_sm < 100:
             # The official cu124 index exposes only the CPU-built raw
-            # torch-2.4.1 CPython 3.11 wheel for Linux aarch64. cu126 is the
-            # first pinned lane here with an official CUDA-enabled SBSA wheel.
+            # torch-2.4.1 wheel for Linux aarch64. cu126 is the first pinned
+            # lane here with an official CUDA-enabled SBSA wheel.
             lane = "cu126" if system == "linux" and arch == "arm64" else "cu124"
         else:
             raise DependencyError(
@@ -380,6 +498,7 @@ def select_dependency_plan(payload: Mapping[str, object]) -> DependencyPlan:
         torch_version=TORCH_VERSIONS[lane],
         torch_index=PYTORCH_INDEXES[lane],
         support_level=support,
+        python_abi=python_abi,
     )
 
 
@@ -486,16 +605,19 @@ def inference_requirements(plan: DependencyPlan) -> tuple[str, ...]:
     """Return the exact dependency closure compatible with ``plan``'s Torch."""
 
     try:
+        python_requirements = INFERENCE_REQUIREMENTS_BY_ABI[plan.python_abi]
         torch_requirements = TORCH_LANE_REQUIREMENTS[plan.torch_lane]
     except KeyError as exc:
         raise DependencyError(
-            "DEPENDENCY_LANE_INVALID", f"unknown Torch dependency lane: {plan.torch_lane}"
+            "DEPENDENCY_LANE_INVALID",
+            f"unknown dependency lane: python={plan.python_abi} torch={plan.torch_lane}",
         ) from exc
-    return (*INFERENCE_REQUIREMENTS, *torch_requirements)
+    return (*python_requirements, *torch_requirements)
 
 
 def requirements_digest(plan: DependencyPlan) -> str:
     payload = {
+        "python_abi": plan.python_abi,
         "bootstrap": BOOTSTRAP_REQUIREMENTS,
         "inference": inference_requirements(plan),
         "torch": plan.torch_requirement,

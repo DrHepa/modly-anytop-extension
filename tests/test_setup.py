@@ -13,6 +13,14 @@ from anytop_modly import dependencies as deps
 from anytop_modly.constants import EXTENSION_ID
 
 
+def abi_payload(payload: dict[str, object], abi: str = "cp311") -> dict[str, object]:
+    return {**payload, "python_abi": abi}
+
+
+def select_plan(payload: dict[str, object], abi: str = "cp311") -> deps.DependencyPlan:
+    return deps.select_dependency_plan(abi_payload(payload, abi))
+
+
 def test_parse_current_json_and_legacy_contract() -> None:
     payload = {"python_exe": "/python", "ext_dir": "/extension", "gpu_sm": 89}
     assert setup.parse_args(["setup.py", json.dumps(payload)]) == payload
@@ -130,7 +138,7 @@ def test_parse_current_json_and_legacy_contract() -> None:
 )
 def test_dependency_lane_matrix(payload, lane, version, index, cuda_runtime, monkeypatch) -> None:
     monkeypatch.setattr(deps, "tegra_evidence", lambda _payload: None)
-    plan = deps.select_dependency_plan(payload)
+    plan = select_plan(payload)
     assert plan.torch_lane == lane
     assert plan.torch_version == version
     assert plan.torch_index == index
@@ -148,11 +156,11 @@ def test_cuda_architecture_matching_is_exact_or_same_major_compatible() -> None:
 def test_dependency_selection_fails_closed(monkeypatch) -> None:
     monkeypatch.setattr(deps, "tegra_evidence", lambda _payload: None)
     with pytest.raises(deps.DependencyError, match="ACCELERATOR_CONFLICT"):
-        deps.select_dependency_plan(
+        select_plan(
             {"platform": "linux", "arch": "x64", "accelerator": "cpu", "gpu_sm": 89}
         )
     with pytest.raises(deps.DependencyError, match="GPU_SM_UNSUPPORTED"):
-        deps.select_dependency_plan(
+        select_plan(
             {
                 "platform": "linux",
                 "arch": "x64",
@@ -162,7 +170,7 @@ def test_dependency_selection_fails_closed(monkeypatch) -> None:
             }
         )
     with pytest.raises(deps.DependencyError, match="GPU_SM_UNSUPPORTED"):
-        deps.select_dependency_plan(
+        select_plan(
             {
                 "platform": "linux",
                 "arch": "x64",
@@ -172,7 +180,7 @@ def test_dependency_selection_fails_closed(monkeypatch) -> None:
             }
         )
     with pytest.raises(deps.DependencyError, match="CUDA_DRIVER_TOO_OLD"):
-        deps.select_dependency_plan(
+        select_plan(
             {
                 "platform": "linux",
                 "arch": "x64",
@@ -182,7 +190,7 @@ def test_dependency_selection_fails_closed(monkeypatch) -> None:
             }
         )
     with pytest.raises(deps.DependencyError, match="CUDA_DRIVER_TOO_OLD"):
-        deps.select_dependency_plan(
+        select_plan(
             {
                 "platform": "linux",
                 "arch": "arm64",
@@ -192,7 +200,7 @@ def test_dependency_selection_fails_closed(monkeypatch) -> None:
             }
         )
     with pytest.raises(deps.DependencyError, match="GPU_PLATFORM_UNSUPPORTED"):
-        deps.select_dependency_plan(
+        select_plan(
             {
                 "platform": "win32",
                 "arch": "x64",
@@ -206,14 +214,14 @@ def test_dependency_selection_fails_closed(monkeypatch) -> None:
 def test_tegra_stock_setup_is_actionably_rejected(monkeypatch) -> None:
     monkeypatch.setattr(deps, "tegra_evidence", lambda _payload: "/etc/nv_tegra_release")
     with pytest.raises(deps.DependencyError, match="TEGRA_UNSUPPORTED"):
-        deps.select_dependency_plan(
+        select_plan(
             {"platform": "linux", "arch": "arm64", "accelerator": "cpu", "gpu_sm": 0}
         )
 
 
 def test_host_preflight_checks_glibc_and_cuda13_driver(monkeypatch) -> None:
     monkeypatch.setattr(deps, "tegra_evidence", lambda _payload: None)
-    plan = deps.select_dependency_plan(
+    plan = select_plan(
         {
             "platform": "linux",
             "arch": "arm64",
@@ -240,7 +248,7 @@ def test_host_preflight_checks_glibc_and_cuda13_driver(monkeypatch) -> None:
 
 
 def test_blackwell_manylinux_preflight_requires_glibc_228(monkeypatch) -> None:
-    plan = deps.select_dependency_plan(
+    plan = select_plan(
         {
             "platform": "linux",
             "arch": "x64",
@@ -256,7 +264,7 @@ def test_blackwell_manylinux_preflight_requires_glibc_228(monkeypatch) -> None:
 
 def test_arm64_cu126_preflight_requires_glibc_228(monkeypatch) -> None:
     monkeypatch.setattr(deps, "tegra_evidence", lambda _payload: None)
-    plan = deps.select_dependency_plan(
+    plan = select_plan(
         {
             "platform": "linux",
             "arch": "arm64",
@@ -272,7 +280,7 @@ def test_arm64_cu126_preflight_requires_glibc_228(monkeypatch) -> None:
 
 def test_host_preflight_runs_before_models_or_install(tmp_path: Path, monkeypatch) -> None:
     context = _context(tmp_path)
-    plan = deps.select_dependency_plan(context.payload)
+    plan = select_plan(context.payload)
     events: list[str] = []
     monkeypatch.setattr(deps, "select_dependency_plan", lambda _payload: plan)
     monkeypatch.setattr(
@@ -290,20 +298,170 @@ def test_host_preflight_runs_before_models_or_install(tmp_path: Path, monkeypatc
 
 
 def test_dependency_commands_are_pinned_and_omit_incompatible_packages(tmp_path: Path) -> None:
-    plan = deps.select_dependency_plan(
+    plan = select_plan(
         {"platform": "linux", "arch": "x64", "accelerator": "cpu", "gpu_sm": 0}
     )
     commands = deps.pip_install_commands(tmp_path / "python", plan, tmp_path / "Motion")
     flattened = "\n".join(" ".join(command).casefold() for command in commands)
     assert "torch==2.4.1" in flattened
     assert "matplotlib==3.7.5" in flattened
+    assert "numpy==1.24.4" in flattened
+    assert "scipy==1.10.1" in flattened
     assert "moviepy==1.0.3" in flattened
     assert "pydantic==1.10.26" in flattened
     assert "spacy==3.7.2" in flattened
+    assert "thinc==8.1.8" in flattened
     assert str(tmp_path / "Motion").casefold() not in flattened
     assert "pymel" not in flattened
     assert "triton==" not in flattened
     assert "nvidia-" not in flattened
+
+
+def test_cpython312_gets_validated_dependency_closure(tmp_path: Path) -> None:
+    plan = select_plan(
+        {"platform": "linux", "arch": "x64", "accelerator": "cpu", "gpu_sm": 0},
+        abi="cp312",
+    )
+    commands = deps.pip_install_commands(tmp_path / "python", plan, tmp_path / "Motion")
+    flattened = "\n".join(" ".join(command).casefold() for command in commands)
+    assert plan.python_abi == "cp312"
+    assert "matplotlib==3.8.4" in flattened
+    assert "numpy==1.26.4" in flattened
+    assert "scipy==1.11.4" in flattened
+    assert "spacy==3.7.5" in flattened
+    assert "thinc==8.2.5" in flattened
+    assert "matplotlib==3.7.5" not in flattened
+    assert "numpy==1.24.4" not in flattened
+
+
+@pytest.mark.parametrize(
+    ("payload", "abi"),
+    (
+        ({"python_abi": "cp311"}, "cp311"),
+        ({"python_abi": "CPython 3.11"}, "cp311"),
+        ({"python_version": [3, 11]}, "cp311"),
+        (
+            {
+                "python_abi": "cp311",
+                "python_version": "3.11",
+                "host_python": {
+                    "implementation": "cpython",
+                    "version": [3, 11],
+                    "pointer_bits": 64,
+                },
+            },
+            "cp311",
+        ),
+        (
+            {
+                "python_abi": "cp312",
+                "python_version": "3.12",
+                "host_python": {
+                    "implementation": "cpython",
+                    "version": [3, 12],
+                    "pointer_bits": 64,
+                },
+            },
+            "cp312",
+        ),
+    ),
+)
+def test_dependency_selection_normalizes_matching_python_abi_evidence(payload, abi) -> None:
+    plan = deps.select_dependency_plan(
+        {
+            "platform": "linux",
+            "arch": "x64",
+            "accelerator": "cpu",
+            "gpu_sm": 0,
+            **payload,
+        }
+    )
+    assert plan.python_abi == abi
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {
+            "python_abi": "cp311",
+            "python_version": [3, 12],
+        },
+        {
+            "python_abi": "cp312",
+            "host_python": {
+                "implementation": "cpython",
+                "version": [3, 11],
+                "pointer_bits": 64,
+            },
+        },
+        {
+            "python_version": "3.12",
+            "host_python": {
+                "implementation": "cpython",
+                "version": [3, 11],
+                "pointer_bits": 64,
+            },
+        },
+    ),
+)
+def test_dependency_selection_rejects_conflicting_python_abi_evidence(payload) -> None:
+    with pytest.raises(deps.DependencyError, match="PYTHON_ABI_CONFLICT"):
+        deps.select_dependency_plan(
+            {
+                "platform": "linux",
+                "arch": "x64",
+                "accelerator": "cpu",
+                "gpu_sm": 0,
+                **payload,
+            }
+        )
+
+
+def test_dependency_selection_requires_probed_python_abi() -> None:
+    payload = {"platform": "linux", "arch": "x64", "accelerator": "cpu", "gpu_sm": 0}
+    with pytest.raises(deps.DependencyError, match="PYTHON_ABI_MISSING"):
+        deps.select_dependency_plan(payload)
+    with pytest.raises(deps.DependencyError, match="PYTHON_ABI_UNSUPPORTED"):
+        deps.select_dependency_plan({**payload, "host_python": {
+            "implementation": "cpython",
+            "version": [3, 10],
+            "pointer_bits": 64,
+        }})
+
+
+def test_state_digest_and_reuse_identity_include_python_abi() -> None:
+    payload = {"platform": "linux", "arch": "x64", "accelerator": "cpu", "gpu_sm": 0}
+    plan311 = select_plan(payload, abi="cp311")
+    plan312 = select_plan(payload, abi="cp312")
+    state311 = deps.dependency_state_payload(
+        plan311, {"implementation": "cpython", "version": [3, 11], "pointer_bits": 64}
+    )
+    state312 = deps.dependency_state_payload(
+        plan312, {"implementation": "cpython", "version": [3, 12], "pointer_bits": 64}
+    )
+    assert plan311.torch_lane == plan312.torch_lane == "cpu"
+    assert state311["plan"]["python_abi"] == "cp311"
+    assert state312["plan"]["python_abi"] == "cp312"
+    assert state311["requirements_digest"] != state312["requirements_digest"]
+    assert state311["host_python"]["version"] == [3, 11]
+    assert state312["host_python"]["version"] == [3, 12]
+
+
+def test_torch_lane_routing_is_identical_for_supported_python_abis(monkeypatch) -> None:
+    monkeypatch.setattr(deps, "tegra_evidence", lambda _payload: None)
+    payloads = (
+        {"platform": "linux", "arch": "x64", "accelerator": "cpu", "gpu_sm": 0},
+        {"platform": "linux", "arch": "x64", "accelerator": "cuda", "gpu_sm": 89, "cuda_version": 124},
+        {"platform": "linux", "arch": "arm64", "accelerator": "cuda", "gpu_sm": 89, "cuda_version": 126},
+        {"platform": "linux", "arch": "x64", "accelerator": "cuda", "gpu_sm": 120, "cuda_version": 128},
+        {"platform": "linux", "arch": "arm64", "accelerator": "cuda", "gpu_sm": 121, "cuda_version": 128},
+    )
+    for payload in payloads:
+        plan311 = select_plan(payload, abi="cp311")
+        plan312 = select_plan(payload, abi="cp312")
+        assert plan311.torch_lane == plan312.torch_lane
+        assert plan311.torch_version == plan312.torch_version
+        assert plan311.torch_index == plan312.torch_index
 
 
 @pytest.mark.parametrize(
@@ -315,7 +473,7 @@ def test_dependency_commands_are_pinned_and_omit_incompatible_packages(tmp_path:
             "2.4.1",
             "https://download.pytorch.org/whl/cpu",
             "sympy==1.13.3",
-            "ef088a666241cf26b91482a46421d53400d0e56db5b08758a20c0d37b2fd7122",
+            "ba511f031d8f9e7342d01240aa9b8f7b4cc515e79874774d4d982d83896d4768",
         ),
         (
             {
@@ -329,7 +487,7 @@ def test_dependency_commands_are_pinned_and_omit_incompatible_packages(tmp_path:
             "2.4.1",
             "https://download.pytorch.org/whl/cu124",
             "sympy==1.13.3",
-            "049e3153835071350d579c3d1360ffdd703cf565692dfe71f6e0e27dacd490fb",
+            "3a91b19852d7d274a53bb1b7b005a821a837f277b5f4bde7c9d5caf6257e678e",
         ),
         (
             {
@@ -343,7 +501,7 @@ def test_dependency_commands_are_pinned_and_omit_incompatible_packages(tmp_path:
             "2.6.0",
             "https://download.pytorch.org/whl/cu126",
             "sympy==1.13.1",
-            "99859f9598ead2453b0eb692734078a5cd2a977c192906030c1ad9249e6973aa",
+            "65194eb470cfe2bc8cb97221226aac2106c68bf9e1c9e2b47bc11eba536ddfbf",
         ),
         (
             {
@@ -357,7 +515,7 @@ def test_dependency_commands_are_pinned_and_omit_incompatible_packages(tmp_path:
             "2.7.1",
             "https://download.pytorch.org/whl/cu128",
             "sympy==1.13.3",
-            "911bbaa47e21aa7fedc99920f8d67ea6b34836b72cf03daa2d16599b92b2bba3",
+            "e574035e9634b7cad087e3e141ac07615a845430336921c5cfaeef82090e1f87",
         ),
         (
             {
@@ -371,7 +529,7 @@ def test_dependency_commands_are_pinned_and_omit_incompatible_packages(tmp_path:
             "2.9.1",
             "https://download.pytorch.org/whl/cu130",
             "sympy==1.13.3",
-            "ecd37d0564a23e7816770436c9d6bdb42a7bd9ee2f126ae5835c22aa61fc287e",
+            "aeca0979e428e8cf959d6d6dbc141b823780aae4ecc6edd04170b5361cd86ee1",
         ),
     ),
 )
@@ -379,7 +537,7 @@ def test_pip_commands_and_locks_follow_exact_torch_lane(
     tmp_path: Path, payload, lane, version, index, sympy, lock_digest, monkeypatch
 ) -> None:
     monkeypatch.setattr(deps, "tegra_evidence", lambda _payload: None)
-    plan = deps.select_dependency_plan(payload)
+    plan = select_plan(payload)
     commands = deps.pip_install_commands(tmp_path / "python", plan, tmp_path / "Motion")
 
     assert plan.torch_lane == lane
@@ -411,12 +569,12 @@ def test_requirement_digests_distinguish_all_torch_lanes(monkeypatch) -> None:
             "gpu_sm": 121, "cuda_version": 128,
         },
     )
-    digests = {deps.requirements_digest(deps.select_dependency_plan(payload)) for payload in payloads}
+    digests = {deps.requirements_digest(select_plan(payload)) for payload in payloads}
     assert len(digests) == 5
 
 
 def test_install_dependencies_is_fully_mockable(tmp_path: Path) -> None:
-    plan = deps.select_dependency_plan(
+    plan = select_plan(
         {"platform": "linux", "arch": "x64", "accelerator": "cpu", "gpu_sm": 0}
     )
     calls = []
@@ -458,7 +616,7 @@ def test_sanitized_environment_preserves_nvidia_loader_paths() -> None:
 
 
 def test_dependency_smoke_rejects_wrong_torch_flavor(tmp_path: Path, monkeypatch) -> None:
-    plan = deps.select_dependency_plan(
+    plan = select_plan(
         {
             "platform": "linux",
             "arch": "x64",
@@ -492,7 +650,7 @@ def test_dependency_smoke_rejects_wrong_torch_flavor(tmp_path: Path, monkeypatch
 
 
 def test_dependency_smoke_requires_compatible_compiled_arch(tmp_path: Path, monkeypatch) -> None:
-    plan = deps.select_dependency_plan(
+    plan = select_plan(
         {
             "platform": "linux",
             "arch": "x64",
@@ -544,6 +702,9 @@ def _context(tmp_path: Path) -> setup.SetupContext:
         "accelerator": "cpu",
         "gpu_sm": 0,
         "cuda_version": 0,
+        "python_abi": "cp311",
+        "python_version": [3, 11],
+        "host_python": fingerprint,
     }
     return setup.SetupContext(
         Path(sys.executable), extension, 0, 0, "cpu", "linux", "x64", payload, fingerprint
@@ -560,7 +721,7 @@ def test_repair_reuses_valid_environment_without_install(tmp_path: Path, monkeyp
     state.write_text("{}")
     revision = tmp_path / "revision"
     revision.mkdir()
-    plan = deps.select_dependency_plan(context.payload)
+    plan = select_plan(context.payload)
     expected = deps.dependency_state_payload(plan, context.host_fingerprint)
     monkeypatch.setattr(deps, "state_matches", lambda *_args: True)
     monkeypatch.setattr(setup, "interpreter_fingerprint", lambda _python: dict(context.host_fingerprint))
@@ -573,7 +734,7 @@ def test_install_promotes_only_after_smoke_and_state(tmp_path: Path, monkeypatch
     context = _context(tmp_path)
     revision = tmp_path / "revision"
     (revision / "source" / "Motion").mkdir(parents=True)
-    plan = deps.select_dependency_plan(context.payload)
+    plan = select_plan(context.payload)
     events: list[str] = []
 
     def fake_create(_context, staging):
@@ -769,7 +930,38 @@ def test_failed_wrapper_update_keeps_published_snapshot_untouched(
     assert source.read_bytes() == source_before
 
 
-def test_validate_context_uses_cpython311_contract(tmp_path: Path, monkeypatch) -> None:
+def test_validate_context_accepts_cpython312_contract(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "extension"
+    root.mkdir()
+    monkeypatch.setattr(setup, "current_platform_name", lambda: "linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        setup,
+        "interpreter_fingerprint",
+        lambda _python: {
+            "implementation": "cpython",
+            "version": [3, 12],
+            "pointer_bits": 64,
+        },
+    )
+    context = setup.validate_context(
+        {
+            "python_exe": sys.executable,
+            "ext_dir": str(root),
+            "platform": "linux",
+            "arch": "x64",
+            "accelerator": "cpu",
+            "gpu_sm": 0,
+        },
+        root,
+    )
+    assert context.arch == "x64"
+    assert context.payload["python_abi"] == "cp312"
+    assert context.payload["python_version"] == [3, 12]
+    assert context.host_fingerprint["version"] == [3, 12]
+
+
+def test_validate_context_accepts_cpython311_contract(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "extension"
     root.mkdir()
     monkeypatch.setattr(setup, "current_platform_name", lambda: "linux")
@@ -794,8 +986,36 @@ def test_validate_context_uses_cpython311_contract(tmp_path: Path, monkeypatch) 
         },
         root,
     )
-    assert context.arch == "x64"
+    assert context.payload["python_abi"] == "cp311"
     assert context.host_fingerprint["version"] == [3, 11]
+
+
+def test_validate_context_rejects_unsupported_python_abi(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "extension"
+    root.mkdir()
+    monkeypatch.setattr(setup, "current_platform_name", lambda: "linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        setup,
+        "interpreter_fingerprint",
+        lambda _python: {
+            "implementation": "cpython",
+            "version": [3, 10],
+            "pointer_bits": 64,
+        },
+    )
+    with pytest.raises(setup.SetupFailure, match="PYTHON_ABI_UNSUPPORTED"):
+        setup.validate_context(
+            {
+                "python_exe": sys.executable,
+                "ext_dir": str(root),
+                "platform": "linux",
+                "arch": "x64",
+                "accelerator": "cpu",
+                "gpu_sm": 0,
+            },
+            root,
+        )
 
 
 def test_setup_main_reports_known_errors_without_subprocess(monkeypatch, capsys) -> None:

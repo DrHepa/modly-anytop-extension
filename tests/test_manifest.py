@@ -13,7 +13,7 @@ class ManifestContractTests(unittest.TestCase):
     def test_extension_identity_and_process_entry_are_frozen(self) -> None:
         self.assertEqual(MANIFEST["id"], "modly-anytop-extension")
         self.assertEqual(MANIFEST["type"], "process")
-        self.assertEqual(MANIFEST["version"], "1.0.0")
+        self.assertEqual(MANIFEST["version"], "1.0.1")
         self.assertEqual(MANIFEST["author"], "DrHepa")
         self.assertEqual(MANIFEST["entry"], "processor.py")
         self.assertEqual(
@@ -89,7 +89,7 @@ class ManifestContractTests(unittest.TestCase):
         self.assertEqual(actual, expected)
 
     def test_only_modly_042_parameter_types_and_fields_are_used(self) -> None:
-        allowed_types = {"select", "int", "float", "string", "file-select"}
+        allowed_types = {"select", "int", "float", "string"}
         allowed_fields = {
             "id",
             "label",
@@ -101,9 +101,6 @@ class ManifestContractTests(unittest.TestCase):
             "step",
             "tooltip",
             "show_if",
-            "picker_intent",
-            "dir_from",
-            "extensions",
         }
         for node in MANIFEST["nodes"]:
             params = node["params_schema"]
@@ -130,23 +127,21 @@ class ManifestContractTests(unittest.TestCase):
                         valid = {option["value"] for option in controlling["options"]}
                         self.assertLessEqual(set(values), valid)
 
-    def test_file_select_and_native_pickers_are_wired_to_real_inputs(self) -> None:
+    def test_path_parameters_use_supported_string_controls(self) -> None:
         nodes = {node["id"]: node for node in MANIFEST["nodes"]}
         preprocess = {
             param["id"]: param
             for param in nodes["anytop-preprocess"]["params_schema"]
         }
-        self.assertEqual(preprocess["bvh_directory"]["picker_intent"], "folder")
-        self.assertEqual(preprocess["tpos_bvh"]["type"], "file-select")
-        self.assertEqual(preprocess["tpos_bvh"]["dir_from"], "bvh_directory")
-        self.assertEqual(preprocess["tpos_bvh"]["extensions"], ["bvh"])
+        self.assertEqual(preprocess["bvh_directory"]["type"], "string")
+        self.assertEqual(preprocess["tpos_bvh"]["type"], "string")
+        self.assertEqual(preprocess["tpos_bvh"]["default"], "")
 
         correspondence = {
             param["id"]: param
             for param in nodes["anytop-correspondence"]["params_schema"]
         }
         self.assertEqual(correspondence["reference_bundle"]["type"], "string")
-        self.assertEqual(correspondence["reference_bundle"]["picker_intent"], "mesh")
 
     def test_upstream_defaults_and_published_limits_are_preserved(self) -> None:
         nodes = {

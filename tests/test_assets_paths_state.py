@@ -8,7 +8,7 @@ import tarfile
 
 import pytest
 
-from anytop_modly import assets, constants, dependencies
+from anytop_modly import assets, constants, dependencies, state
 from anytop_modly.constants import EXTENSION_ID, REVISION_ID, AssetSpec
 from anytop_modly.paths import (
     PathContractError,
@@ -18,6 +18,10 @@ from anytop_modly.paths import (
     snapshot_paths,
 )
 from anytop_modly.state import StateError, read_runtime_config, write_runtime_config
+
+
+def select_plan(payload: dict[str, object], abi: str = "cp311") -> dependencies.DependencyPlan:
+    return dependencies.select_dependency_plan({**payload, "python_abi": abi})
 
 
 class Response(io.BytesIO):
@@ -116,7 +120,11 @@ def test_runtime_config_roundtrip_is_atomic_and_secret_free(tmp_path: Path) -> N
         extension,
         models,
         revision,
-        extra={"extension_id": EXTENSION_ID, "source_root": str(revision / "source")},
+        extra={
+            "extension_id": EXTENSION_ID,
+            "source_root": str(revision / "source"),
+            "python_abi": state.current_python_abi(),
+        },
     )
     parsed = read_runtime_config(extension)
     assert config_path.name == "runtime_config.json"
@@ -126,6 +134,38 @@ def test_runtime_config_roundtrip_is_atomic_and_secret_free(tmp_path: Path) -> N
     assert not list(extension.glob("*.tmp"))
     with pytest.raises(StateError, match="STATE_SECRET_REJECTED"):
         write_runtime_config(extension, models, revision, extra={"hf_token": "do-not-store"})
+
+
+def test_runtime_config_rejects_stale_python_abi(tmp_path: Path, monkeypatch) -> None:
+    models = tmp_path / "models"
+    models.mkdir()
+    revision = owned_snapshot_directory(models, create=True)
+    extension = tmp_path / "extension"
+    extension.mkdir()
+    write_runtime_config(
+        extension,
+        models,
+        revision,
+        extra={"python_abi": "cp311"},
+    )
+    monkeypatch.setattr(state, "current_python_abi", lambda: "cp312")
+    with pytest.raises(StateError, match="STATE_PYTHON_ABI_MISMATCH"):
+        read_runtime_config(extension)
+
+
+@pytest.mark.parametrize("abi", ("cp311", "cp312"))
+def test_runtime_config_accepts_matching_supported_python_abi(
+    tmp_path: Path, monkeypatch, abi: str
+) -> None:
+    models = tmp_path / "models"
+    models.mkdir()
+    revision = owned_snapshot_directory(models, create=True)
+    extension = tmp_path / "extension"
+    extension.mkdir()
+    write_runtime_config(extension, models, revision, extra={"python_abi": abi})
+    monkeypatch.setattr(state, "current_python_abi", lambda: abi)
+    parsed = read_runtime_config(extension)
+    assert parsed.payload["python_abi"] == abi
 
 
 def test_resumable_download_hashes_and_promotes(tmp_path: Path) -> None:
@@ -280,7 +320,7 @@ def test_revision_identity_covers_inventory_but_not_wrapper_version(monkeypatch)
     assert constants.REVISION_ID.endswith(constants.ASSET_REVISION_DIGEST[:24])
 
     marker_before = assets.ready_payload()
-    plan = dependencies.select_dependency_plan(
+    plan = select_plan(
         {"platform": "linux", "arch": "x64", "accelerator": "cpu", "gpu_sm": 0}
     )
     state_before = dependencies.dependency_state_payload(plan, {"version": [3, 11]})

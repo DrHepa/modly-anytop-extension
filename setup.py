@@ -1,6 +1,6 @@
 """Install the complete AnyTop runtime into Modly-owned storage.
 
-Modly 0.4.2 invokes setup with one JSON object.  The older positional form
+Modly 0.4.2+ invokes setup with one JSON object.  The older positional form
 (``python_exe ext_dir gpu_sm [cuda_version]``) remains supported so Repair can
 upgrade an existing extension.  Immutable code, checkpoints and T5 weights
 are stored below Modly's models_dir and survive extension updates; only the
@@ -236,15 +236,20 @@ def validate_context(payload: Mapping[str, object], root: Path = ROOT) -> SetupC
         payload.get("accelerator") or ("cuda" if gpu_sm else "cpu")
     ).strip().casefold()
     fingerprint = interpreter_fingerprint(python_exe)
-    if (
-        fingerprint.get("implementation") != "cpython"
-        or fingerprint.get("version") != [3, 11]
-        or fingerprint.get("pointer_bits") != 64
-    ):
+    try:
+        python_abi = deps.python_abi_from_fingerprint(fingerprint)
+    except deps.DependencyError as exc:
+        version = fingerprint.get("version")
+        if isinstance(version, list) and len(version) >= 2:
+            reported = f"CPython {version[0]}.{version[1]}"
+        else:
+            reported = str(version or fingerprint.get("implementation") or "unknown Python")
         raise SetupFailure(
             "PYTHON_ABI_UNSUPPORTED",
-            "AnyTop requires Modly's 64-bit CPython 3.11 runtime",
-        )
+            "AnyTop requires Modly's 64-bit CPython 3.11 or 3.12 runtime; "
+            f"this host reported {reported}. Use Modly's bundled CPython 3.11.9, "
+            "or a Modly runtime based on 64-bit CPython 3.12, then run Repair.",
+        ) from exc
     normalized = dict(payload)
     normalized.update(
         {
@@ -255,6 +260,9 @@ def validate_context(payload: Mapping[str, object], root: Path = ROOT) -> SetupC
             "accelerator": accelerator,
             "platform": system,
             "arch": arch,
+            "python_abi": python_abi,
+            "python_version": list(deps.SUPPORTED_PYTHON_ABIS[python_abi]),
+            "host_python": dict(fingerprint),
         }
     )
     return SetupContext(
@@ -800,6 +808,9 @@ def _run_setup_locked(context: SetupContext) -> Path:
                 "gpu_sm": plan.gpu_sm,
                 "cuda_version": plan.cuda_version,
                 "dependency_support_level": plan.support_level,
+                "python_abi": plan.python_abi,
+                "python_runtime": plan.python_label,
+                "host_python": dict(context.host_fingerprint),
                 "host_runtime": host_runtime,
                 "dependency_lock_digest": deps.requirements_digest(plan),
                 "environment_reused": environment.reused,

@@ -2,7 +2,7 @@
   "id": "modly-anytop-extension",
   "name": "AnyTop for Modly",
   "type": "process",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "DrHepa",
   "description": "Prepare arbitrary BVH skeletons, generate and edit motion, and extract AnyTop DIFT correspondences.",
   "source": "https://github.com/DrHepa/modly-anytop-extension",
@@ -19,7 +19,6 @@
           "label": "BVH directory",
           "type": "string",
           "default": "",
-          "picker_intent": "folder",
           "tooltip": "Folder containing one skeleton's T/rest pose and motion BVH files."
         },
         {
@@ -53,10 +52,8 @@
         {
           "id": "tpos_bvh",
           "label": "T/rest pose BVH",
-          "type": "file-select",
+          "type": "string",
           "default": "",
-          "dir_from": "bvh_directory",
-          "extensions": ["bvh"],
           "tooltip": "Optional natural rest-pose file from BVH directory. If empty, AnyTop selects a pose."
         }
       ]
@@ -321,7 +318,6 @@
           "label": "Reference bundle",
           "type": "string",
           "default": "",
-          "picker_intent": "mesh",
           "tooltip": "Select the AnyTop GLB bundle used as the reference; the connected mesh input is the target."
         },
         {

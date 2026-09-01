@@ -10,6 +10,7 @@ from unittest import mock
 
 from anytop_modly import runtime
 from anytop_modly import assets
+from anytop_modly import state
 from anytop_modly.bundles import BundleError, verify_bundle
 
 
@@ -322,6 +323,7 @@ class RuntimeStateRoutingTests(unittest.TestCase):
             "extension_id": runtime.EXTENSION_ID,
             "extension_version": runtime.EXTENSION_VERSION,
             "revision_id": runtime.REVISION_ID,
+            "python_abi": state.current_python_abi(),
             "models_dir": str(root.resolve()),
             "revision_root": str(revision.resolve()),
             "source_root": str(paths.anytop_source.resolve()),
@@ -453,6 +455,100 @@ class RuntimeStateRoutingTests(unittest.TestCase):
                 with self.assertRaises(runtime.ProcessFailure) as raised:
                     runtime.load_state(config)
             self.assertEqual(raised.exception.code, "SETUP_REQUIRED")
+
+
+class RuntimeStateConfigAbiTests(unittest.TestCase):
+    def _write_runtime_config(self, root: Path, *, abi: str | None) -> Path:
+        from anytop_modly import state
+        from anytop_modly.assets import ready_payload
+        from anytop_modly.bundles import BUNDLE_AUTH_KEY_FILENAME
+        from anytop_modly.paths import owned_snapshot_directory, snapshot_paths
+
+        models = root / "models"
+        models.mkdir()
+        revision = owned_snapshot_directory(models, create=True)
+        paths = snapshot_paths(revision)
+        paths.anytop_source.mkdir(parents=True)
+        paths.motion_source.mkdir(parents=True)
+        paths.checkpoints.mkdir(parents=True)
+        paths.t5.mkdir(parents=True)
+        paths.builtin_cond.parent.mkdir(parents=True, exist_ok=True)
+        paths.builtin_cond.write_bytes(b"cond")
+        paths.ready_marker.parent.mkdir(parents=True, exist_ok=True)
+        paths.ready_marker.write_text(__import__("json").dumps(ready_payload()), encoding="utf-8")
+        runtime_cache = revision / "runtime-cache"
+        runtime_cache.mkdir()
+        key_path = runtime_cache / BUNDLE_AUTH_KEY_FILENAME
+        key_path.write_bytes(b"K" * 32)
+        key_path.chmod(0o600)
+        extension = root / "extension"
+        extension.mkdir()
+        extra: dict[str, object] = {
+            "extension_id": runtime.EXTENSION_ID,
+            "revision_id": runtime.REVISION_ID,
+            "source_root": str(paths.anytop_source),
+            "motion_source": str(paths.motion_source),
+            "checkpoints_root": str(paths.checkpoints),
+            "builtin_cond": str(paths.builtin_cond),
+            "t5_path": str(paths.t5),
+            "ready_marker": str(paths.ready_marker),
+            "runtime_cache_dir": str(runtime_cache),
+            "available_devices": ["cpu"],
+            "default_device": "cpu",
+        }
+        if abi is not None:
+            extra["python_abi"] = abi
+        return state.write_runtime_config(extension, models, revision, extra=extra)
+
+    def test_load_state_rejects_stale_runtime_python_abi(self) -> None:
+        from anytop_modly import state
+
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self._write_runtime_config(Path(temporary), abi="cp311")
+            with mock.patch.object(state, "current_python_abi", return_value="cp312"):
+                with self.assertRaises(runtime.ProcessFailure) as raised:
+                    runtime.load_state(config)
+        self.assertEqual(raised.exception.code, "SETUP_REQUIRED")
+        self.assertIsInstance(raised.exception.__cause__, state.StateError)
+        self.assertEqual(raised.exception.__cause__.code, "STATE_PYTHON_ABI_MISMATCH")
+
+    def test_load_state_rejects_missing_runtime_python_abi(self) -> None:
+        from anytop_modly import state
+
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self._write_runtime_config(Path(temporary), abi=None)
+            with mock.patch.object(state, "current_python_abi", return_value="cp312"):
+                with self.assertRaises(runtime.ProcessFailure) as raised:
+                    runtime.load_state(config)
+        self.assertEqual(raised.exception.code, "SETUP_REQUIRED")
+        self.assertIsInstance(raised.exception.__cause__, state.StateError)
+        self.assertEqual(raised.exception.__cause__.code, "STATE_PYTHON_ABI_UNSUPPORTED")
+
+    def test_load_state_rejects_unsupported_runtime_python_abi(self) -> None:
+        from anytop_modly import state
+
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self._write_runtime_config(Path(temporary), abi="cp310")
+            with mock.patch.object(state, "current_python_abi", return_value="cp310"):
+                with self.assertRaises(runtime.ProcessFailure) as raised:
+                    runtime.load_state(config)
+        self.assertEqual(raised.exception.code, "SETUP_REQUIRED")
+        self.assertIsInstance(raised.exception.__cause__, state.StateError)
+        self.assertEqual(raised.exception.__cause__.code, "STATE_PYTHON_ABI_UNSUPPORTED")
+
+    def test_load_state_accepts_matching_supported_runtime_python_abis(self) -> None:
+        from anytop_modly import state
+
+        for abi in ("cp311", "cp312"):
+            with self.subTest(abi=abi), tempfile.TemporaryDirectory() as temporary:
+                config = self._write_runtime_config(Path(temporary), abi=abi)
+                with mock.patch.object(state, "current_python_abi", return_value=abi), mock.patch.object(
+                    runtime, "_verify_snapshot_once"
+                ):
+                    loaded = runtime.load_state(config)
+            self.assertEqual(loaded.models_dir.name, "models")
+            self.assertEqual(loaded.available_devices, frozenset({"cpu"}))
+            self.assertEqual(loaded.default_device, "cpu")
 
 
 if __name__ == "__main__":
